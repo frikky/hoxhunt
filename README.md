@@ -28,12 +28,12 @@ hox := hoxhunt.CreateLogin(yourApiKey)
 
 // Available functions
 allIncidents, err := hox.ListIncidents()
-threatInfo, err := login.GetThreat(threatId)
-incidentInfo, err := login.GetIncident(incidentId)
+threatInfo, err := hox.GetThreat(threatId)
+incidentInfo, err := hox.GetIncident(incidentId)
 
-// No return value it seems
-login.CloseIncident(incidentId)
-ReopenIncident(incidentId)
+// No return value from request. Might be statusCode dependant? 
+hox.CloseIncident(incidentId)
+hox.ReopenIncident(incidentId)
 ```
 
 ## Implementation
