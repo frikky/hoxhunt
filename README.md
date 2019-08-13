@@ -1,3 +1,6 @@
+# UPDATE: Deprecated - Don't use this
+* As they changed their graphql calls which made this bug out, and they made an actual REST API available, this is now deprecated, and not working anymore
+
 # Hoxhunt API
 As I struggle using other peoples' interfaces in general, I went about creating an API for them. It's purely based on how they work with GraphQL.
 
