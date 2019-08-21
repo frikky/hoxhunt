@@ -18,15 +18,33 @@ type IncidentListData struct {
 	} `json:"incidents"`
 }
 
+type HoxhuntData struct {
+	Url            string
+	Apikey         string
+	OrganizationId string
+	Ro             grequests.RequestOptions
+}
+
+// FIXME - untested
+type ThreatListData struct {
+	Threats []struct {
+		Typename    string    `json:"__typename"`
+		ID          string    `json:"_id"`
+		CreatedAt   time.Time `json:"createdAt"`
+		PolicyName  string    `json:"policyName"`
+		State       string    `json:"state"`
+		ThreatCount int       `json:"threatCount"`
+	} `json:"threats"`
+}
+
 type IncidentListWrapper struct {
 	Data IncidentListData `json:"data"`
 	Raw  []byte           `json:"-"`
 }
 
-type HoxhuntData struct {
-	Url    string
-	Apikey string
-	Ro     grequests.RequestOptions
+type ThreatListWrapper struct {
+	Data ThreatListData `json:"data"`
+	Raw  []byte         `json:"-"`
 }
 
 type IncidentWrapper struct {
@@ -169,7 +187,7 @@ type IncidentData struct {
 // Isn't incidentId per customer? What
 // Doesn't get an error with: incidentId = "asd"
 func (hoxhunt *HoxhuntData) ReopenIncident(incidentId string) error {
-	data := fmt.Sprintf(`{"operationName":"UpdateIncidentState","variables":{"incidentId":"%s","state":"OPEN"},"query":"mutation UpdateIncidentState($incidentId: ID!, $state: IncidentState!) {\n  updateIncidentState(incidentId: $incidentId, state: $state) {\n    _id\n    state\n    __typename\n  }\n}\n"}`, incidentId)
+	data := fmt.Sprintf(`{"operationName":"UpdateIncidentState","variables":{"incidentId":"%s","organizationId":"%s","state":"OPEN"},"query":"mutation UpdateIncidentState($incidentId: ID!, $organizationId: ID!, $state: IncidentState!) {\n  updateIncidentState(incidentId: $incidentId, organizationId: $organizationId, state: $state) {\n    _id\n    state\n    __typename\n  }\n}\n"}`, incidentId, hoxhunt.OrganizationId)
 
 	hoxhunt.Ro.JSON = data
 
@@ -178,7 +196,7 @@ func (hoxhunt *HoxhuntData) ReopenIncident(incidentId string) error {
 }
 
 func (hoxhunt *HoxhuntData) CloseIncident(incidentId string) error {
-	data := fmt.Sprintf(`{"operationName":"UpdateIncidentState","variables":{"incidentId":"%s","state":"RESOLVED"},"query":"mutation UpdateIncidentState($incidentId: ID!, $state: IncidentState!) {\n  updateIncidentState(incidentId: $incidentId, state: $state) {\n    _id\n    state\n    __typename\n  }\n}\n"}`, incidentId)
+	data := fmt.Sprintf(`{"operationName":"UpdateIncidentState","variables":{"incidentId":"%s","organizationId":"%s","state":"RESOLVED"},"query":"mutation UpdateIncidentState($incidentId: ID!, $organizationId: ID!, $state: IncidentState!) {\n  updateIncidentState(incidentId: $incidentId, organizationId: $organizationId, state: $state) {\n    _id\n    state\n    __typename\n  }\n}\n"}`, incidentId, hoxhunt.OrganizationId)
 
 	hoxhunt.Ro.JSON = data
 
@@ -187,12 +205,12 @@ func (hoxhunt *HoxhuntData) CloseIncident(incidentId string) error {
 }
 
 func (hoxhunt *HoxhuntData) ListIncidents() (*IncidentListWrapper, error) {
-	data := `{"operationName":"IncidentListQuery","variables":{"incidentState":"OPEN","sort":"createdAt_DESC"},"query":"query IncidentListQuery($policyName: IncidentPolicy, $organizationId: ID, $incidentState: IncidentState, $sort: [Incident_sort]) {\n  incidents(filter: {organizationId_eq: $organizationId, policyName_eq: $policyName, state_eq: $incidentState}, sort: $sort) {\n    _id\n    createdAt\n    policyName\n    state\n    threatCount\n    __typename\n  }\n}\n"}`
+	data := fmt.Sprintf(`{"operationName":"IncidentListQuery","variables":{"first":50,"state":"OPEN","organizationId":"%s","sort":"lastReportedAt_DESC"},"query":"query IncidentListQuery($policyName: IncidentPolicy, $organizationId: ID, $state: IncidentState, $sort: [Incident_sort], $first: Int, $skip: Int) {\n  incidents(first: $first, skip: $skip, filter: {organizationId_eq: $organizationId, policyName_eq: $policyName, state_eq: $state}, sort: $sort) {\n    _id\n    createdAt\n    policyName\n    state\n    threatCount\n    threats(first: 1) {\n      _id\n      userModifiers {\n        repliedToEmail\n        downloadedFile\n        visitedLink\n        openedAttachment\n        enteredCredentials\n        other\n        __typename\n      }\n      email {\n        subject\n        from {\n          address\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n"}`, hoxhunt.OrganizationId)
 
 	hoxhunt.Ro.JSON = data
 
 	ret, err := grequests.Post(hoxhunt.Url, &hoxhunt.Ro)
-	fmt.Println(ret)
+	fmt.Println(ret.String())
 
 	parsedRet := new(IncidentListWrapper)
 	err = json.Unmarshal(ret.Bytes(), parsedRet)
@@ -205,11 +223,28 @@ func (hoxhunt *HoxhuntData) ListIncidents() (*IncidentListWrapper, error) {
 	return parsedRet, nil
 }
 
-func (hoxhunt *HoxhuntData) GetIncident(incidentId string) (*IncidentWrapper, error) {
-	data := fmt.Sprintf(`{"operationName":"IncidentDetailsContainerQuery","variables":{"incidentId":"%s"},"query":"query IncidentDetailsContainerQuery($incidentId: ID!) {\n  incidents(filter: {_id_eq: $incidentId}) {\n    _id\n    createdAt\n    policyName\n    state\n    threats(sort: createdAt_DESC, first: 100) {\n      _id\n      createdAt\n      email {\n        subject\n        from {\n          address\n          __typename\n        }\n        __typename\n      }\n      reporterUser {\n        _id\n        emails {\n          address\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n"}`, incidentId)
+func (hoxhunt *HoxhuntData) ListThreats() (*ThreatListWrapper, error) {
+	data := fmt.Sprintf(`{"operationName":"ThreatWorkQueueQuery","variables":{"first":50,"organizationId":"%s"},"query":"query ThreatWorkQueueQuery($first: Int, $threatId: ID, $searchText: String, $severity: ThreatSeverity, $threatGroupId: String, $organizationId: String, $direction: ThreatWorkQueueDirection) {\n  threats: threatsAround(filter: {state_eq: THREAT_UPLOADED, severity_eq: $severity, organizationId_eq: $organizationId, AND: [{threatGroupId_eq: $threatGroupId}, {threatGroupId_exists: true}, {OR: [{email__subject_contains: $searchText}, {email__from__address_contains: $searchText}, {email__to__address_contains: $searchText}]}]}, sort: [createdAt_DESC], first: $first, threatId: $threatId, direction: $direction) {\n    createdAt\n    _id\n    severity\n    threatGroupId\n    feedbackSentAt\n    email {\n      subject\n      from {\n        name\n        address\n        __typename\n      }\n      __typename\n    }\n    organization {\n      _id\n      name\n      __typename\n    }\n    escalationEmail {\n      sendDate\n      __typename\n    }\n    reporterUser {\n      _id\n      profile {\n        firstName\n        lastName\n        __typename\n      }\n      emails {\n        address\n        __typename\n      }\n      player {\n        level {\n          current\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n"}`, hoxhunt.OrganizationId)
 
 	hoxhunt.Ro.JSON = data
 
+	ret, err := grequests.Post(hoxhunt.Url, &hoxhunt.Ro)
+
+	parsedRet := new(ThreatListWrapper)
+	err = json.Unmarshal(ret.Bytes(), parsedRet)
+	if err != nil {
+		return parsedRet, err
+	}
+
+	parsedRet.Raw = ret.Bytes()
+
+	return parsedRet, nil
+}
+
+func (hoxhunt *HoxhuntData) GetIncident(incidentId string) (*IncidentWrapper, error) {
+	data := fmt.Sprintf(`{"operationName":"IncidentDetailsContainerQuery","variables":{"incidentId":"%s","organizationId":"%s"},"query":"query IncidentDetailsContainerQuery($incidentId: ID!, $organizationId: ID, $createdBefore: Date) {\n  incidents(filter: {_id_eq: $incidentId, organizationId_eq: $organizationId}) {\n    _id\n    organizationId\n    createdAt\n    policyName\n    state\n    threatCount\n    threats(sort: createdAt_DESC, first: 50, filter: {createdAt_lte: $createdBefore}) {\n      _id\n      createdAt\n      email {\n        subject\n        from {\n          address\n          __typename\n        }\n        __typename\n      }\n      reporterUser {\n        _id\n        emails {\n          address\n          __typename\n        }\n        __typename\n      }\n      userModifiers {\n        userActedOnThreat\n        repliedToEmail\n        downloadedFile\n        openedAttachment\n        visitedLink\n        enteredCredentials\n        other\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n"}`, incidentId, hoxhunt.OrganizationId)
+
+	hoxhunt.Ro.JSON = data
 	ret, err := grequests.Post(hoxhunt.Url, &hoxhunt.Ro)
 
 	parsedRet := new(IncidentWrapper)
@@ -239,10 +274,11 @@ func (hoxhunt *HoxhuntData) GetThreat(threatId string) (*ThreatWrapper, error) {
 	return parsedRet, nil
 }
 
-func CreateLogin(apikey string) HoxhuntData {
+func CreateLogin(apikey, orgId string) HoxhuntData {
 	return HoxhuntData{
-		Url:    "https://app.hoxhunt.com/graphql",
-		Apikey: apikey,
+		Url:            "https://app.hoxhunt.com/graphql",
+		Apikey:         apikey,
+		OrganizationId: orgId,
 		Ro: grequests.RequestOptions{
 			Headers: map[string]string{
 				"authorization": apikey,
